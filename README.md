@@ -1,1 +1,1 @@
-# rayshader-examples
+This is a temporary parking place for all of the great {rayshader} examples, scripts, and work-flows we have been using over the last couple of years. Self-contained work-flows will eventually be moved to soilReports. Examples related to block diagram, soil system, and benchmark landscape documentation will likely need their own repository.
