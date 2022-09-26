@@ -1,0 +1,52 @@
+---
+title: "`r paste0(params$series, ' Series')`"
+author: "`r Sys.info()['user']`"
+date: "`r Sys.Date()`"
+output: html_document
+params:
+  series: "Marshall"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+Plotting soil profiles in ggplot2 is a simple task when using the soilDB and aqp packages. Adding in the use of the rayshader package and some custom notations, the profile can be plotted as a 3D representation and lighting and shadows can be added to simulate a monolith often used as a teaching aid for learning about soil.
+
+```{r}
+library(soilDB)
+library(aqp)
+library(ggplot2)
+library(rayshader)
+
+
+fosd <- fetchOSD(params$series)
+
+fh1 <- horizons(fosd)
+  
+splot <- ggplot(fh1) +
+  geom_rect(aes(xmin = 0, ymin = top, ymax = bottom, xmax = 1, fill = soil_color)) +
+    geom_text(aes(label = hzname, y = (top+bottom)/2, x = .25),color = "white") +
+    geom_text(aes(label = bottom, y = bottom -3.5, x = .9), color = "white", size = 3) +
+  scale_y_reverse() +
+  scale_fill_identity() +
+    geom_hline(aes(yintercept = bottom), color = "black")  +
+  labs(x = NULL, y = "Depth (cm)", title = fh1$id) +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+
+ptent <- ggplot(fh1) +
+  geom_rect(aes(xmin = 0, ymin = top, xmax = 1, ymax = bottom, fill = max(bottom))) +
+  scale_y_reverse() +
+  scale_color_identity() +
+  theme(legend.position = "none") +
+  labs(x = NULL) +
+    theme(axis.text.x = element_blank(), plot.margin = unit(c(.85,.2,.2,.7), "cm"))
+
+plot_gg(list(splot, ptent), units = "mm", height = 4, width = 2, scale = 100, phi = 45, theta = -45, zoom = 1, fov = 0)
+render_snapshot(paste0(params$series, "_3dprof.png"))
+
+```
+
+The view of the monolith can be manipulated and saved as a static image via the use of the render_snapshot function.
+
+`r paste0("![](",params$series,"_3dprof.png)")`
