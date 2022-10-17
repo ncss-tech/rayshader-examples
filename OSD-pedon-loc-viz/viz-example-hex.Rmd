@@ -1,0 +1,117 @@
+---
+title: "Rayshader Example Pedon and Site Visualization"
+author: "`r Sys.info()['user']`"
+date: "`r Sys.Date()`"
+output: html_document
+params:
+  series: "Marshall"
+---
+
+This example uses the rayshader package to visualize the landscape and landform surrounding a pedon, while also displaying a 3d representation of the pedon horizonation, depths and colors.
+
+Using the latitude and longitude we create a buffer of 2 kilometers to capture a bounding box of the surrounding area. This is then used as an input for querying the elevation data from an online web service. The extent is then cropped to limit the area of interest. After the elevation data is obtained, the shading can be generated.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+First create a connection to the local NASIS database. You could also use fetchNASIS() to obtain the site data.
+
+```{r echo=TRUE}
+library(DBI)
+con <- dbConnect(odbc::odbc(), "nasis_local", timeout = 10, uid = "NASISSQLRO", 
+    pwd = "nasisRe@d0n1y365")
+sers <- params$series
+```
+
+Although any site/pedon could be used, in this case, the Official Series Description for the `r params$series` series and its associated site will be used. A custom SQL query was created to obtain the latitude and longitude of the OSD pedon type with a taxon name = `r params$series` from NASIS.
+
+```{sql connection = "con", output.var = "nq", echo = TRUE}
+
+SELECT TOP 1 site.latstddecimaldegrees, site.longstddecimaldegrees, site.siteiid --if more than one exists, this insures only one is selected
+FROM site
+JOIN siteobs ON site.siteiid = siteobs.siteiidref
+JOIN pedon ON pedon.siteobsiidref = siteobs.siteobsiid
+WHERE pedontype = 7 -- osd pedon type
+AND taxonname = ?sers
+```
+
+Required libraries:
+
+```{r, echo = TRUE}
+library(soilDB)
+library(aqp)
+library(sf)
+library(raster)
+library(dplyr)
+library(rayshader)
+library(rgl)
+library(elevatr)
+```
+
+Two custom functions were developed to convert and plot a soil profile collection object into a 3D representation in rgl. The first function creates a set of vertices that correspond to the layers which helps to distinguish horizon boundaries. The second function builds the faces of the pedon object and shades it with the appropriate colors.
+
+```{r, echo = TRUE}
+source("build3d_profwhex.R")
+source("build3d_profhex.R")
+
+#make an sf object from the lat/long
+s <- st_as_sf(nq, coords =c( "longstddecimaldegrees", "latstddecimaldegrees"), crs = 4326)
+
+#create a 2 km buffer around the point
+se <- st_buffer(s, 2000)
+
+#use the buffer area to query the elevation data
+r11r <- get_elev_raster(se, z = 14) # different zoom levels here will change the results and formatting significantly
+
+#crop raster to match the extent of the buffer zone, (which centers the raster at the lat/long of the pedon) then crop again to set specific dimensions
+cc <- crop(r11r, st_bbox(se))
+cc <- crop(cc, extent(cc, ((nrow(cc)/2)-250),((nrow(cc)/2)+250), ((ncol(cc)/2)-250), ((ncol(cc)/2)+250) ))
+
+#convert the raster to a matrix so it can be used in rayshader
+ccmat <- raster_to_matrix(cc)
+
+#compute ambient shade for the matrix
+ambmat <- ambient_shade(ccmat, sunbreaks = 24, maxsearch = 300, multicore=TRUE)
+
+#use custom function to build a wireframe
+w <- build3dprofilewhex(params$series, cc)
+
+#get osd data for plotting labels
+fosd <- fetchOSD(params$series)
+
+#extract horizonation
+fh1 <- horizons(fosd)
+
+# display a point in the scene to indicate the location of the pedon
+render_points(extent = extent(cc), heightmap = ccmat, lat = nq$latstddecimaldegrees, long = nq$longstddecimaldegrees, zscale = 1, color = "red")
+
+# display the 3D surface of area surrounding the pedon location
+tst <- ccmat %>%
+  sphere_shade(zscale = 10, texture = "imhof1") %>%
+  add_shadow(ray_shade(ccmat, zscale = 10, maxsearch = 300)) %>%
+  add_shadow(ambmat, max_darken = .7) %>%
+  plot_3d(ccmat, zscale = 1, fov = 0, theta = 315, zoom = .9, phi = 45, baseshape = "hex"
+          # , asp = 1/cospi(nq$latstddecimaldegrees/180), windowsize = c(768, 768) #this can be used to adjust the aspect for higher latitudes
+          )
+
+# add an axis to label horizon depth tops
+axis3d(edge = "y++", color = "black", pos = c(55,NA,55), labels = fh1$top, at = (max(fh1$bottom*2)-fh1$top*2) + cc@data@max +(500 - max(fh1$bottom)*2))
+
+# add an axis to label horizon depth bottoms
+axis3d(edge = "y++", color = "black", pos = c(55,NA,55), labels = fh1$bottom, at = (max(fh1$bottom*2)-fh1$bottom*2) + cc@data@max +(500 - max(fh1$bottom)*2))
+
+# add an axis for horizon name labels
+axis3d(edge = "y--", color = "black", pos = c(-55,NA,-55), labels = fh1$hzname, at = ((max(fh1$bottom)-((fh1$bottom+fh1$top))) ) + cc@data@max +(500 - max(fh1$bottom)))
+
+# a custom function to display the profile faces and colors
+t <- build3dprofilehex(params$series, cc)
+
+#save the view as a static image locally
+render_snapshot(paste0(params$series,"_3dhexsnap.png"))
+
+```
+
+This visualization is based on a hexagon shape. The result is a 3D generated object that can be manipulated by changing the view as desired. When the desired view is obtained, you can save a snapshot of that view as a png with the render snapshot function. The horizon depth labels and horizon names can also be added as additional notation if desired.
+
+`r paste0("![](",params$series,"_3dhexsnap.png)")`
