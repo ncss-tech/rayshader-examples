@@ -8,15 +8,14 @@ library(sf)
 
 
 
-
+# clay center DSS site
 bb <- '-97.0984 39.3804,-97.0984 39.4123,-97.0282 39.4123,-97.0282 39.3804,-97.0984 39.3804'
 
 # convert text -> WKT -> sf
 wkt <- sprintf('POLYGON((%s))', bb)
-x <- st_as_sfc(wkt)
+x <- st_as_sfc(wkt, crs = 4326)
 
-# set coordinate reference system as GCS/WGS84
-st_crs(x) <- 4326
+
 
 # query WCS
 m <- mukey.wcs(x, db = 'gSSURGO')
@@ -29,9 +28,11 @@ mu <- st_transform(mu, 5070)
 mu <- vect(mu)
 
 ## prepare DEM
-z <- get_elev_raster(raster::raster(m), z = 12, prj = 'EPSG:5070')
+z <- get_elev_raster(raster::raster(m), z = 14, prj = 'EPSG:5070')
 z <- rast(z)
-z <- terra::resample(z, m, method = 'cubic')
+
+
+m <- terra::resample(m, z, method = 'cubic')
 
 
 # check: OK
